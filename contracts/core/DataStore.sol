@@ -74,6 +74,10 @@ contract DataStore {
     //   QUERY FUNCTIONS  //
     //--------------------//
 
+    function getAsset() internal view returns (DataType.Asset memory) {
+        return _dataStore.asset;
+    }
+
     function sharesOf(uint id) external view returns (uint) {
         DataType.NftInfo memory nft = _store().nftInfoMap[id];
         return nft.valid ? nft.shares : 0;

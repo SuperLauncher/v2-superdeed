@@ -167,6 +167,13 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         }
     }
 
+    function getReleasableTokensOfGroup(uint groupId) external view returns (uint percentReleasable, uint totalEntitlement) {
+        if (isGroupReady(groupId)) {
+            totalEntitlement =  getGroupInfo(groupId).totalTokens;
+            percentReleasable = _groups().getClaimable(groupId);
+        }
+    }
+
     function getClaimable(uint nftId) public view returns (uint claimable, uint totalClaimed, uint totalEntitlement) {
         
         DataType.NftInfo memory nft = getNftInfo(nftId);
