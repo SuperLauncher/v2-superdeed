@@ -60,6 +60,7 @@ contract DataStore {
     event ClaimDeed(address indexed user, uint timeStamp, uint groupId, uint claimIndex, uint amount, uint nftId);
     event ClaimTokens(address indexed user, uint timeStamp, uint id, uint amount);
     event Split(uint timeStamp, uint id1, uint id2, uint amount);
+    event SplitPercent(uint timeStamp, uint id1, uint id2, uint percent);
     event Combine(uint timeStamp, uint id1, uint id2);
     event ApprovedEmergencyWithdraw(address indexed approver, uint amount, uint expiry);
     event DaoMultiSigEmergencyWithdraw(address to, address tokenAddress, uint amount);
@@ -78,9 +79,9 @@ contract DataStore {
         return _dataStore.asset;
     }
 
-    function sharesOf(uint id) external view returns (uint) {
+    function entitlementOf(uint id) external view returns (uint) {
         DataType.NftInfo memory nft = _store().nftInfoMap[id];
-        return nft.valid ? nft.shares : 0;
+        return nft.valid ? nft.totalEntitlement : 0;
     }
 
     function getGroupCount() external view returns (uint) {
@@ -117,8 +118,6 @@ contract DataStore {
         return (time != 0 && block.timestamp > time);
     }
 
-
-
     function verifyDeedClaim(uint groupId, uint index, address account, uint amount, bytes32[] calldata merkleProof) external view returns (bool) {
         DataType.Group storage group = _groups().items[groupId];
         return group.verifyClaim(index, account, amount, merkleProof);
@@ -143,26 +142,33 @@ contract DataStore {
         return _dataStore.nextIds++;
     }
 
-    function _transferOut20(address token, address to, uint amount) internal {
+    function _transferAssetOut(address to, uint amount) internal {
+
+        DataType.AssetType assetType = _asset().tokenType;
+        address token = _asset().tokenAddress;
+
+        if (assetType == DataType.AssetType.ERC20) {
+            IERC20(token).safeTransfer(to, amount);
+        } else if (assetType == DataType.AssetType.ERC1155) {
+            IERC1155(token).safeTransferFrom(address(this), to, _asset().tokenId, amount, "");
+        } else if (assetType == DataType.AssetType.ERC721) {
+            
+            uint len = _asset().erc721IdArray.length;
+            require(_asset().numErc721TransferedOut + amount <= len, "Exceeded Amount");
+        
+            for (uint n=0; n<amount; n++) {
+
+                uint id = _asset().erc721IdArray[_asset().erc721NextClaimIndex++];
+                IERC721(token).safeTransferFrom(address(this), to, id);
+            }
+            _asset().numErc721TransferedOut += amount;
+        }
+    }
+
+    function _transferOutErc20(address token, address to, uint amount) internal {
         IERC20(token).safeTransfer(to, amount);
     }
-
-    function _transferOut1155(address to, uint amount) internal {
-        IERC1155(_asset().tokenAddress).safeTransferFrom(address(this), to, _asset().tokenId, amount, "");
-    }
-
-    function _transferOut721(address to, uint amount) internal {
-        uint len = _asset().erc721IdArray.length;
-        require(_asset().numErc721TransferedOut + amount <= len, "Exceeded Amount");
-        
-        for (uint n=0; n<amount; n++) {
-
-            uint id = _asset().erc721IdArray[_asset().erc721NextClaimIndex++];
-            IERC721(_asset().tokenAddress).safeTransferFrom(address(this), to, id);
-        }
-        _asset().numErc721TransferedOut += amount;
-    }
-
+    
     function _setAsset(string memory tokenSymbol, string memory deedName) internal {
         _dataStore.asset.symbol = tokenSymbol;
         _dataStore.asset.deedName = deedName;

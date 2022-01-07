@@ -35,8 +35,8 @@ library DataType {
     
     struct GroupInfo {
         string name;
-        uint totalShares; // This is the raised amount for this group
-        uint totalTokens; // This is the total tokens to be distributed to this group
+        // uint totalShares; // This is the raised amount for this group
+        uint totalEntitlement; // This is the total tokens to be distributed to this group
     }
 
     struct GroupState {
@@ -62,8 +62,8 @@ library DataType {
 
     struct NftInfo {
         uint groupId;
-        uint shares;
-        uint tokenClaimed;
+        uint totalEntitlement; 
+        uint totalClaimed;
         bool valid;
     }  
 

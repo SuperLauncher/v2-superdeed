@@ -69,8 +69,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _recordHistory(DataType.ActionType.DefineVesting, added);
     }
 
-    function uploadUsersData(uint groupId, string memory groupName, bytes32 merkleRoot, uint totalShares, uint totalTokens) external  notLive onlyProjectOwnerOrConfigurator {   
-        _groups().uploadUsersData(groupId, groupName, merkleRoot, totalShares, totalTokens);
+    function uploadUsersData(uint groupId, string memory groupName, bytes32 merkleRoot, uint totalTokens) external  notLive onlyProjectOwnerOrConfigurator {   
+        _groups().uploadUsersData(groupId, groupName, merkleRoot, totalTokens);
         _recordHistory(DataType.ActionType.UploadUsersData, groupId, totalTokens);
     }
 
@@ -90,7 +90,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         // Check required token Amount is correct?
         _groups().validateGroup(groupId, groupName);
         DataType.GroupInfo memory info = getGroupInfo(groupId);
-        _require(tokenAmount == info.totalTokens, "Wrong token amount");
+        _require(tokenAmount == info.totalEntitlement, "Wrong token amount");
         _groups().setFinalized(groupId, groupName);
 
         // Only ERC20 and ERC1155 can fund in. ERC721 can't fund in easily in 1 function call //
@@ -147,7 +147,6 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         uint claimIndex;
         uint amount;
         uint nftId;
-        uint share;
 
         DataType.Groups storage groups = _groups();
         for (uint n=0; n<len; n++) {
@@ -162,10 +161,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
             item.claim(claimIndex, msg.sender, amount, merkleProofs[n]);
             
-            // Convert amount to shares before minting deed
-            share = (amount * item.info.totalShares) / item.info.totalTokens;
-
-            nftId = _mintInternal(msg.sender, grpId, share, 0);
+            // Mint NFT
+            nftId = _mintInternal(msg.sender, grpId, amount, 0);
             emit ClaimDeed(msg.sender, block.timestamp, grpId, claimIndex, amount, nftId);
             _recordHistory(DataType.ActionType.ClaimDeed, grpId, nftId);
         }
@@ -173,7 +170,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
     function getReleasableTokensOfGroup(uint groupId) external view returns (uint percentReleasable, uint totalEntitlement) {
         if (isGroupReady(groupId)) {
-            totalEntitlement =  getGroupInfo(groupId).totalTokens;
+            totalEntitlement =  getGroupInfo(groupId).totalEntitlement;
             percentReleasable = _groups().getClaimable(groupId);
         }
     }
@@ -181,12 +178,10 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     function getClaimable(uint nftId) public view returns (uint claimable, uint totalClaimed, uint totalEntitlement) {
         
         DataType.NftInfo memory nft = getNftInfo(nftId);
-        if (nft.valid && isGroupReady(nft.groupId)) {
-        
-            DataType.GroupInfo memory info = getGroupInfo(nft.groupId);
-
-            totalEntitlement =  (nft.shares * info.totalTokens) / info.totalShares;
-            totalClaimed = nft.tokenClaimed;
+        if (nft.valid) {
+            
+            totalEntitlement =  nft.totalEntitlement;
+            totalClaimed = nft.totalClaimed;
 
             uint percentReleasable = _groups().getClaimable(nft.groupId);
             if (percentReleasable > 0) {
@@ -203,73 +198,66 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _require(claimable > 0, "Nothing to claim");
         
         DataType.NftInfo storage nft = _store().nftInfoMap[nftId];
-        nft.tokenClaimed += claimable;
+        nft.totalClaimed += claimable;
 
-        DataType.AssetType assetType = _asset().tokenType;
-        if (assetType == DataType.AssetType.ERC20) {
-            _transferOut20(_asset().tokenAddress, msg.sender, claimable);
-        } else if (assetType == DataType.AssetType.ERC1155) {
-            _transferOut1155(msg.sender, claimable);
-        } else if (assetType == DataType.AssetType.ERC721) {
-            _transferOut721(msg.sender, claimable);
-        }
-
+        _transferAssetOut(msg.sender, claimable);
         emit ClaimTokens(msg.sender, block.timestamp, nftId, claimable);
         _recordHistory(DataType.ActionType.ClaimTokens, nftId, claimable);
     }
     
-    function splitBySharesAmount(uint id, uint shareAmount) external returns (uint) {
-        return _splitBySharesAmount(id, shareAmount);
-    }
+    // Split by "remaining" entitlement in the NFT
+    function splitByPercent(uint id, uint percent) external nonReentrant returns (uint newId) {
 
-    function splitBySharesPercent(uint id, uint sharePercent) public returns (uint) {
-        _require(sharePercent > 0 && sharePercent < Constant.PCNT_100, "Invalid percentage");
-        
-        uint amount = (_store().nftInfoMap[id].shares * sharePercent)/Constant.PCNT_100;
-        return _splitBySharesAmount(id, amount);
-    }
-
-    function splitByEntitledTokensAmount(uint id, uint tokenAmount) external returns (uint) {
-
-        // Find remaining tokens in Deed
-        DataType.NftInfo storage nftInfo = _store().nftInfoMap[id];
-        DataType.GroupInfo memory groupInfo = getGroupInfo(nftInfo.groupId);
-
-        uint totalEntitlement = (nftInfo.shares * groupInfo.totalTokens) / (groupInfo.totalShares);
-        uint tokensInDeed = totalEntitlement - nftInfo.tokenClaimed;
-        _require(tokenAmount < tokensInDeed, "Amount exceeded");
-
-        uint percent = (tokenAmount * Constant.PCNT_100) / tokensInDeed;
-        return splitBySharesPercent(id, percent);
-    }
-
-    function _splitBySharesAmount(uint id, uint shareAmount) internal nonReentrant returns (uint newId) {
-        
         _require(ownerOf(id) == msg.sender, "Not owner");
-        _require(shareAmount > 0, "Invalid amount");
+        _require(percent > 0 && percent < Constant.PCNT_100, "Invalid percentage");
+        _require(_asset().tokenType == DataType.AssetType.ERC20, "Can split Erc20 only");
+        
+        DataType.NftInfo storage nft = _store().nftInfoMap[id];
+       
+        uint splitAmount = (nft.totalEntitlement * percent)/Constant.PCNT_100;
+        uint claimedAmount = (nft.totalClaimed * percent)/Constant.PCNT_100;
+
+        nft.totalEntitlement -= splitAmount;
+        nft.totalClaimed -= claimedAmount;
+        
+        // mint new nft
+        newId = _mintInternal(msg.sender, nft.groupId, splitAmount, claimedAmount);
+        emit SplitPercent(block.timestamp, id, newId, percent);
+    }
+
+    function split(uint id, uint amount) external nonReentrant returns (uint newId) {
+        _require(ownerOf(id) == msg.sender, "Not owner");
+        _require(amount > 0, "Invalid amount");
+        _require(_asset().tokenType == DataType.AssetType.ERC20, "Can split Erc20 only");
 
         DataType.NftInfo storage nft = _store().nftInfoMap[id];
 
-        _require(nft.shares > shareAmount, "Exceeded amount");
-        uint claimedPortion = (nft.tokenClaimed * shareAmount)/nft.shares;
+        uint entitlementLeft = nft.totalEntitlement - nft.totalClaimed;
+        _require(entitlementLeft > amount, "Exceeded amount");
 
-        nft.shares -= shareAmount;
-        nft.tokenClaimed -= claimedPortion;
+        uint splitAmount = (amount * nft.totalEntitlement) / entitlementLeft;
+        uint claimedAmount = (nft.totalClaimed * splitAmount) / entitlementLeft;
+
+        nft.totalEntitlement -= splitAmount;
+        nft.totalClaimed -= claimedAmount;
         
         // mint new nft
-        newId = _mintInternal(msg.sender, nft.groupId, shareAmount, claimedPortion);
-        emit Split(block.timestamp, id, newId, shareAmount);
+        newId = _mintInternal(msg.sender, nft.groupId, splitAmount, claimedAmount);
+        emit Split(block.timestamp, id, newId, amount);
     }
 
     function combine(uint id1, uint id2) external nonReentrant {
         _require(ownerOf(id1) == msg.sender && ownerOf(id2) == msg.sender, "Not owner");
 
-        // Since the vesting items are the same, we can just add up the 2 nft 
         DataType.NftInfo storage nft1 = _store().nftInfoMap[id1];
         DataType.NftInfo memory nft2 = _store().nftInfoMap[id2];
         
-        nft1.shares += nft2.shares;
-        nft1.tokenClaimed += nft2.tokenClaimed;
+        // Must be the same group
+        _require(nft1.groupId == nft2.groupId, "Not same group");
+
+        // Since the vesting items are the same, we can just add up the 2 nft 
+        nft1.totalEntitlement += nft2.totalEntitlement;
+        nft1.totalClaimed += nft2.totalClaimed;
          
         // Burn NFT 2 
         _burn(id2);
@@ -306,14 +294,12 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
          // Withdraw ERC721, 1155
         if (isAsset) {
-            if (_asset().tokenType==DataType.AssetType.ERC1155) {
-                _transferOut1155(to, amount);
-            } else if (_asset().tokenType==DataType.AssetType.ERC721) {
-                _transferOut721(to, amount);
-            }
+            _transferAssetOut(to, amount);
+            return;
         }
-        // Withdraw ERC20   
-         _transferOut20(tokenAddress, to, amount); 
+
+        // Withdraw non asset ERC20   
+         _transferOutErc20(tokenAddress, to, amount); 
 
         emit DaoMultiSigEmergencyWithdraw(to, tokenAddress, amount);
     }
@@ -323,11 +309,11 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     // INTERNAL FUNCTIONS //
     //--------------------//
  
-    function _mintInternal(address to, uint groupId, uint shares, uint tokensClaimed) internal returns (uint id) {
+    function _mintInternal(address to, uint groupId, uint totalEntitlement, uint totalClaimed) internal returns (uint id) {
         id = _nextNftIdIncrement();
         _mint(to, id);
 
         // Setup ths certificate's info
-        _store().nftInfoMap[id] = DataType.NftInfo(groupId, shares, tokensClaimed, true);
+        _store().nftInfoMap[id] = DataType.NftInfo(groupId, totalEntitlement, totalClaimed, true);
     }
 }

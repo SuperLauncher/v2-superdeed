@@ -8,7 +8,7 @@ library Groups {
     event AppendGroup(address indexed user, string name);
     event SetGroupVerified(address indexed user, uint groupId, string name);
     event SetGroupFinalized(address indexed user, uint groupId, string name);
-    event UploadGroupUserData(address indexed user, uint groupId, string name, uint totalShares, uint totalTokens);
+    event UploadGroupUserData(address indexed user, uint groupId, string name, uint totalTokens);
     event SetupFee(address indexed user, uint groupId, string name, address feeAddress, uint feePercent);
 
     function appendGroups(DataType.Groups storage groups, string[] memory names) external returns (uint) {
@@ -25,16 +25,16 @@ library Groups {
         return len;
     }
 
-    function uploadUsersData(DataType.Groups storage groups, uint groupId, string memory groupName, bytes32 root,  uint totalShares, uint totalTokens) external {
+    function uploadUsersData(DataType.Groups storage groups, uint groupId, string memory groupName, bytes32 root, uint totalTokens) external {
         validateGroup(groups, groupId, groupName);
 
         DataType.Group storage item = groups.items[groupId];
         _require(!item.state.finalized, "Already finalized");
         item.merkleRoot = root;
-        item.info.totalShares = totalShares;
-        item.info.totalTokens = totalTokens;
+        // TODO item.info.totalShares = totalShares;
+        item.info.totalEntitlement = totalTokens;
         item.state.verified = false;
-        emit UploadGroupUserData(msg.sender, groupId, groupName, totalShares, totalTokens);
+        emit UploadGroupUserData(msg.sender, groupId, groupName, totalTokens);
     }
 
     function setVerified(DataType.Groups storage groups, uint groupId, string memory groupName) external {
@@ -71,7 +71,7 @@ library Groups {
         if (!item.state.verified) { return (false,  "Not yet verified"); }
         if (!item.state.finalized) { return (false, "Not yet finalized"); }
         if (item.merkleRoot.length == 0) { return (false, "No merkle root"); }
-        if (item.info.totalShares == 0 || item.info.totalTokens == 0) { return (false, "Invalid amount"); }
+        if (item.info.totalEntitlement == 0) { return (false, "Invalid amount"); }
         if (item.vestItems.length == 0) { return (false, "No vesting item"); }
         return (true, "ok");
     }
