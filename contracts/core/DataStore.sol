@@ -74,7 +74,7 @@ contract DataStore {
     //   QUERY FUNCTIONS  //
     //--------------------//
 
-    function getAsset() internal view returns (DataType.Asset memory) {
+    function getAsset() external view returns (DataType.Asset memory) {
         return _dataStore.asset;
     }
 
