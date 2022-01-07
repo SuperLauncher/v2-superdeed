@@ -147,21 +147,25 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         uint claimIndex;
         uint amount;
         uint nftId;
+        uint share;
 
         DataType.Groups storage groups = _groups();
         for (uint n=0; n<len; n++) {
             
             grpId = groupIds[n];
             claimIndex = indexes[n];
-            amount = amounts[n];
+            amount = amounts[n]; 
 
             DataType.Group storage item = groups.items[grpId];
             _require(item.state.finalized, "Group not finalized");
             _require(!item.isClaimed(claimIndex), "Index already claimed"); 
 
             item.claim(claimIndex, msg.sender, amount, merkleProofs[n]);
-            // Mint Deed 
-            nftId = _mintInternal(msg.sender, grpId, amount, 0);
+            
+            // Convert amount to shares before minting deed
+            share = (amount * item.info.totalShares) / item.info.totalTokens;
+
+            nftId = _mintInternal(msg.sender, grpId, share, 0);
             emit ClaimDeed(msg.sender, block.timestamp, grpId, claimIndex, amount, nftId);
             _recordHistory(DataType.ActionType.ClaimDeed, grpId, nftId);
         }
@@ -203,7 +207,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
         DataType.AssetType assetType = _asset().tokenType;
         if (assetType == DataType.AssetType.ERC20) {
-            _transferOut721(msg.sender, claimable);
+            _transferOut20(_asset().tokenAddress, msg.sender, claimable);
         } else if (assetType == DataType.AssetType.ERC1155) {
             _transferOut1155(msg.sender, claimable);
         } else if (assetType == DataType.AssetType.ERC721) {
