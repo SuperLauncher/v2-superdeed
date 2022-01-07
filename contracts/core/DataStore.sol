@@ -153,15 +153,15 @@ contract DataStore {
             IERC1155(token).safeTransferFrom(address(this), to, _asset().tokenId, amount, "");
         } else if (assetType == DataType.AssetType.ERC721) {
             
-            uint len = _asset().erc721IdArray.length;
-            require(_asset().numErc721TransferedOut + amount <= len, "Exceeded Amount");
+            DataType.Erc721Handler storage handler = _store().erc721Handler;
+            uint len = handler.erc721IdArray.length;
+            require(handler.numErc721TransferedOut + amount <= len, "Exceeded Amount");
         
             for (uint n=0; n<amount; n++) {
-
-                uint id = _asset().erc721IdArray[_asset().erc721NextClaimIndex++];
+                uint id = handler.erc721IdArray[handler.erc721NextClaimIndex++];
                 IERC721(token).safeTransferFrom(address(this), to, id);
             }
-            _asset().numErc721TransferedOut += amount;
+            handler.numErc721TransferedOut += amount;
         }
     }
 

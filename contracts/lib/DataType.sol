@@ -11,6 +11,9 @@ library DataType {
         mapping(uint => NftInfo) nftInfoMap; // Maps NFT Id to NftInfo
         uint nextIds; // NFT Id management 
         mapping(address=>Action[]) history; // History management
+
+        // Erc721 handler
+        Erc721Handler erc721Handler;
     }
 
     struct Asset {
@@ -21,11 +24,6 @@ library DataType {
 
         // ERC1155 specific
         uint tokenId;
-
-        // ERC721 specific
-        uint[] erc721IdArray;
-        uint erc721NextClaimIndex;
-        uint numErc721TransferedOut;
     }
 
     struct Groups {
@@ -58,6 +56,14 @@ library DataType {
 
         // States
         GroupState state;
+    }
+
+    struct Erc721Handler {
+        uint[] erc721IdArray;
+        mapping(uint => bool) idExistMap;
+        uint erc721NextClaimIndex;
+        uint numErc721TransferedOut;
+        uint numUsedByVerifiedGroups;
     }
 
     struct NftInfo {

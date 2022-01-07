@@ -43,17 +43,6 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         return  string(abi.encodePacked(BASE_URI, _store().asset.deedName));
     }
 
-    
-    function onERC721Received( address operator, address , uint256 tokenId , bytes memory ) public virtual override returns (bytes4) {
-        
-        // When ERC721 asset is transfered into this deed, it is saved up in erc721IdArray
-        require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Asset address not yet set");
-        if (_asset().tokenType == DataType.AssetType.ERC721 && operator == _asset().tokenAddress) {
-            _asset().erc721IdArray.push(tokenId);
-        }
-        return this.onERC721Received.selector;
-    }
-    
     //--------------------//
     //   SETUP & CONFIG   //
     //--------------------//
@@ -84,7 +73,9 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _recordHistory(DataType.ActionType.VerifyGroup, groupId);
     }
 
-    function finalizeGroupAndFundIn(uint groupId, string memory groupName, uint tokenAmount) external notLive onlyProjectOwner {
+    // Note that for ERC721 asset, the fund in is manual. Additionally, after transfer in, a call
+    // to notifyErc721Deposited() is required before calling finalizeGroupAndFundIn.
+    function finalizeGroupAndFundIn(uint groupId, string memory groupName, uint tokenAmount) external notLive onlyProjectOwnerOrApprover {
         _require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Invalid address");
         
         // Check required token Amount is correct?
@@ -93,22 +84,27 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _require(tokenAmount == info.totalEntitlement, "Wrong token amount");
         _groups().setFinalized(groupId, groupName);
 
-        // Only ERC20 and ERC1155 can fund in. ERC721 can't fund in easily in 1 function call //
+
         DataType.AssetType assetType = _asset().tokenType;
         if (assetType == DataType.AssetType.ERC20) {
             IERC20(_asset().tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount); 
-        } else {
+        } else if (assetType == DataType.AssetType.ERC1155) {
             IERC1155(_asset().tokenAddress).safeTransferFrom(msg.sender, address(this), _asset().tokenId, tokenAmount, ""); 
-        }
+        } else {
+            
+            // Verify that the amount has been deposied already ?
+            DataType.Erc721Handler storage handler = _store().erc721Handler;
+
+            uint totalDeposited721 = handler.erc721IdArray.length;
+            require(totalDeposited721 >= (handler.numUsedByVerifiedGroups + tokenAmount), "Insufficient deposited erc721");
+            handler.numUsedByVerifiedGroups += tokenAmount;
+        }   
         
         emit FinalizeGroupFundIn(msg.sender, groupId, groupName, tokenAmount);
         _recordHistory(DataType.ActionType.FinalizeGroupFundIn, groupId, tokenAmount);
     }
 
-    // Use-case 1: ERC721 Support
-    // ERC721 does not have batchTransfer. So we have to depend on manual transfer in. Admin have to check for each group's
-    // transfer in and then manually finalize each group without fundIn.
-    // Use-case 2:
+    // Use-case:
     // If there is an arrangement with project for manual fund-in. Example, a vesting contract that allow the fund in before each 
     // vesting period, then the Group can be finalized without a fund-in.
     // This should be an exception, rather than a norm. Only DaoMultiSig can approve such an arrangement.
@@ -116,6 +112,28 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _groups().setFinalized(groupId, groupName);
         emit FinalizeGroupWithoutFundIn(msg.sender, groupId, groupName);
         _recordHistory(DataType.ActionType.FinalizeGroupWithoutFundIn, groupId, 0);
+    }
+
+    function notifyErc721Deposited(uint[] calldata ids) external notLive onlyProjectOwnerOrApprover {
+
+        _require(_asset().tokenType == DataType.AssetType.ERC721, "Not Erc721 asset");
+        address token = _asset().tokenAddress;
+
+        DataType.Erc721Handler storage handler = _store().erc721Handler;
+
+        uint id;
+        uint len = ids.length;
+        for (uint n=0; n<len; n++) {
+
+            // Make sure it is owned by this contract
+            id = ids[n];
+            _require(IERC721(token).ownerOf(id) == address(this), "Nft Id not deposited");
+            
+            if (!handler.idExistMap[id]) {
+                handler.idExistMap[id] = true;
+                handler.erc721IdArray.push(id);
+            }
+        }
     }
 
     // If startTime is 0, the vesting wil start immediately.
