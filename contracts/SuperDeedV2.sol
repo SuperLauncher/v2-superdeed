@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
 
-
 pragma solidity 0.8.11;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
@@ -10,7 +9,6 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./core/DataStore.sol";
 import "./logic/Vesting.sol";
 import "./interfaces/IEmergency.sol";
-
 
 contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holder, DataStore, ReentrancyGuard {
 
@@ -84,19 +82,17 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _require(tokenAmount == info.totalEntitlement, "Wrong token amount");
         _groups().setFinalized(groupId, groupName);
 
-
         DataType.AssetType assetType = _asset().tokenType;
         if (assetType == DataType.AssetType.ERC20) {
             IERC20(_asset().tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount); 
         } else if (assetType == DataType.AssetType.ERC1155) {
             IERC1155(_asset().tokenAddress).safeTransferFrom(msg.sender, address(this), _asset().tokenId, tokenAmount, ""); 
         } else {
-            
             // Verify that the amount has been deposied already ?
             DataType.Erc721Handler storage handler = _store().erc721Handler;
 
             uint totalDeposited721 = handler.erc721IdArray.length;
-            require(totalDeposited721 >= (handler.numUsedByVerifiedGroups + tokenAmount), "Insufficient deposited erc721");
+            _require(totalDeposited721 >= (handler.numUsedByVerifiedGroups + tokenAmount), "Insufficient deposited erc721");
             handler.numUsedByVerifiedGroups += tokenAmount;
         }   
         
@@ -111,7 +107,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     function finalizeGroupWithoutFundIn(uint groupId, string memory groupName) external notLive onlyDaoMultiSig {
         _groups().setFinalized(groupId, groupName);
         emit FinalizeGroupWithoutFundIn(msg.sender, groupId, groupName);
-        _recordHistory(DataType.ActionType.FinalizeGroupWithoutFundIn, groupId, 0);
+        _recordHistory(DataType.ActionType.FinalizeGroupWithoutFundIn, groupId);
     }
 
     function notifyErc721Deposited(uint[] calldata ids) external notLive onlyProjectOwnerOrApprover {
@@ -139,8 +135,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     // If startTime is 0, the vesting wil start immediately.
     function startVesting(uint startTime) external notLive onlyProjectOwnerOrApprover {
 
-        // Make sure that the asset address are set 
-        _require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Token adress must be set before vesting start");
+        // Make sure that the asset address are set before start vesting
+        _require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Set token address first");
 
         if (startTime==0) {
             startTime = block.timestamp;
@@ -174,8 +170,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
             amount = amounts[n]; 
 
             DataType.Group storage item = groups.items[grpId];
-            _require(item.state.finalized, "Group not finalized");
-            _require(!item.isClaimed(claimIndex), "Index already claimed"); 
+            _require(item.state.finalized && !item.isClaimed(claimIndex), "Not finalized or already claimed");
 
             item.claim(claimIndex, msg.sender, amount, merkleProofs[n]);
             
@@ -194,10 +189,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     }
 
     function getClaimable(uint nftId) public view returns (uint claimable, uint totalClaimed, uint totalEntitlement) {
-        
         DataType.NftInfo memory nft = getNftInfo(nftId);
         if (nft.valid) {
-            
             totalEntitlement =  nft.totalEntitlement;
             totalClaimed = nft.totalClaimed;
 
@@ -209,12 +202,20 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         }
     }
 
-    function claimTokens(uint nftId) external nonReentrant {
-        
+    // ERC721 cannot be batchTransfer. In order to make sure the claim will not fail due to claiming
+    // a huge number of ERC721 token, we allow specifying a claim amount 'maxAmount'. This way, the
+    // user can claim multiple times without having gas limitation issue.
+    // If maxAmount is set to 0, it will claim all available tokens.
+    function claimTokens(uint nftId, uint maxAmount) external nonReentrant {
         _require(ownerOf(nftId) == msg.sender, "Not owner");
         (uint claimable, ,) =  getClaimable(nftId);
         _require(claimable > 0, "Nothing to claim");
         
+        // Partial claim ?
+        if (maxAmount != 0 && claimable > maxAmount) {
+            claimable = maxAmount;
+        }
+    
         DataType.NftInfo storage nft = _store().nftInfoMap[nftId];
         nft.totalClaimed += claimable;
 
@@ -225,7 +226,6 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     
     // Split by "remaining" entitlement in the NFT
     function splitByPercent(uint id, uint percent) external nonReentrant returns (uint newId) {
-
         _require(ownerOf(id) == msg.sender, "Not owner");
         _require(percent > 0 && percent < Constant.PCNT_100, "Invalid percentage");
         _require(_asset().tokenType == DataType.AssetType.ERC20, "Can split Erc20 only");
@@ -245,13 +245,12 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
     function split(uint id, uint amount) external nonReentrant returns (uint newId) {
         _require(ownerOf(id) == msg.sender, "Not owner");
-        _require(amount > 0, "Invalid amount");
         _require(_asset().tokenType == DataType.AssetType.ERC20, "Can split Erc20 only");
 
         DataType.NftInfo storage nft = _store().nftInfoMap[id];
 
         uint entitlementLeft = nft.totalEntitlement - nft.totalClaimed;
-        _require(entitlementLeft > amount, "Exceeded amount");
+        _require(amount > 0 && entitlementLeft > amount, "Invalid amount");
 
         uint splitAmount = (amount * nft.totalEntitlement) / entitlementLeft;
         uint claimedAmount = (nft.totalClaimed * splitAmount) / entitlementLeft;
@@ -297,41 +296,33 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
     function daoMultiSigEmergencyWithdraw(address tokenAddress, address to, uint amount) external override onlyDaoMultiSig {
        
-        _require(amount > 0, "Invalid amount");
-
         // If withdrawn token is the asset, then we will require projectOwner to approve.
         // Every approval allow 1 time withdraw only.
-        bool isAsset = (tokenAddress == _asset().tokenAddress);
-        if (isAsset) {
-            _require(amount <= _emergencyMaxAmount, "Amount exceeded");
-            _require(block.timestamp <= _emergencyExpiryTime, "Expired");
+        if (tokenAddress == _asset().tokenAddress) {
+            _require((amount <= _emergencyMaxAmount) && (block.timestamp <= _emergencyExpiryTime), "Criteria not met");
+           
             // Reset 
             _emergencyMaxAmount = 0;
             _emergencyExpiryTime = 0;
-        } 
 
-         // Withdraw ERC721, 1155
-        if (isAsset) {
             _transferAssetOut(to, amount);
-            return;
+        } else {
+            // Withdraw non asset ERC20   
+            _transferOutErc20(tokenAddress, to, amount); 
         }
-
-        // Withdraw non asset ERC20   
-         _transferOutErc20(tokenAddress, to, amount); 
-
         emit DaoMultiSigEmergencyWithdraw(to, tokenAddress, amount);
     }
-
 
     //--------------------//
     // INTERNAL FUNCTIONS //
     //--------------------//
  
     function _mintInternal(address to, uint groupId, uint totalEntitlement, uint totalClaimed) internal returns (uint id) {
+        _require(totalEntitlement > 0, "Invalid entitlement");
         id = _nextNftIdIncrement();
         _mint(to, id);
 
-        // Setup ths certificate's info
+        // Setup the certificate's info
         _store().nftInfoMap[id] = DataType.NftInfo(groupId, totalEntitlement, totalClaimed, true);
     }
 }

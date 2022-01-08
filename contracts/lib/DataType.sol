@@ -11,9 +11,7 @@ library DataType {
         mapping(uint => NftInfo) nftInfoMap; // Maps NFT Id to NftInfo
         uint nextIds; // NFT Id management 
         mapping(address=>Action[]) history; // History management
-
-        // Erc721 handler
-        Erc721Handler erc721Handler;
+        Erc721Handler erc721Handler; // Erc721 asset deposit & claiming management
     }
 
     struct Asset {
@@ -21,20 +19,17 @@ library DataType {
         string deedName;
         address tokenAddress;
         AssetType tokenType;
-
-        // ERC1155 specific
-        uint tokenId;
+        uint tokenId; // Specific for ERC1155 type of asset only
     }
 
     struct Groups {
         Group[] items;
-        uint vestingStartTime; // The global timestamp for vesting to start //
+        uint vestingStartTime; // Global timestamp for vesting to start
     }
     
     struct GroupInfo {
         string name;
-        // uint totalShares; // This is the raised amount for this group
-        uint totalEntitlement; // This is the total tokens to be distributed to this group
+        uint totalEntitlement; // Total tokens to be distributed to this group
     }
 
     struct GroupState {
@@ -43,18 +38,10 @@ library DataType {
     }
 
     struct Group {
-    
-        // General info
         GroupInfo info;
-
-        // Vesting
         VestingItem[] vestItems;
-
-        // Deed Claims
-        bytes32 merkleRoot;
+        bytes32 merkleRoot; // Deed Claims using Merkle tree
         mapping(uint => uint) deedClaimMap;
-
-        // States
         GroupState state;
     }
 
@@ -80,20 +67,6 @@ library DataType {
         uint percent;
     }
     
-    // History
-    enum ActionType {
-        AppendGroups,
-        DefineVesting,
-        UploadUsersData,
-        SetAssetAddress,
-        VerifyGroup,
-        FinalizeGroupWithoutFundIn,
-        FinalizeGroupFundIn,
-        StartVesting,
-        ClaimDeed,
-        ClaimTokens
-    }
-    
     struct Action {
         uint128     actionType;
         uint128     time;
@@ -107,7 +80,6 @@ library DataType {
     }
     
     // ENUMS
-
     enum AssetType {
         ERC20,
         ERC1155,
@@ -118,6 +90,19 @@ library DataType {
         LumpSum,
         Linear,
         Unsupported
+    }
+
+    enum ActionType {
+        AppendGroups,
+        DefineVesting,
+        UploadUsersData,
+        SetAssetAddress,
+        VerifyGroup,
+        FinalizeGroupFundIn,
+        FinalizeGroupWithoutFundIn,
+        StartVesting,
+        ClaimDeed,
+        ClaimTokens
     }
 }
 

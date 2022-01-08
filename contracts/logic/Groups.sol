@@ -11,8 +11,8 @@ library Groups {
     event UploadGroupUserData(address indexed user, uint groupId, string name, uint totalTokens);
     event SetupFee(address indexed user, uint groupId, string name, address feeAddress, uint feePercent);
 
-    function appendGroups(DataType.Groups storage groups, string[] memory names) external returns (uint) {
-        uint len = names.length;
+    function appendGroups(DataType.Groups storage groups, string[] memory names) external returns (uint len) {
+        len = names.length;
         for (uint n=0; n<len; n++) {
             
             (bool found, ) = exist(groups, names[n]);
@@ -22,16 +22,13 @@ library Groups {
             newGroup.info.name = names[n];
             emit AppendGroup(msg.sender, names[n]);
         }
-        return len;
     }
 
     function uploadUsersData(DataType.Groups storage groups, uint groupId, string memory groupName, bytes32 root, uint totalTokens) external {
         validateGroup(groups, groupId, groupName);
-
         DataType.Group storage item = groups.items[groupId];
         _require(!item.state.finalized, "Already finalized");
         item.merkleRoot = root;
-        // TODO item.info.totalShares = totalShares;
         item.info.totalEntitlement = totalTokens;
         item.state.verified = false;
         emit UploadGroupUserData(msg.sender, groupId, groupName, totalTokens);
@@ -39,7 +36,6 @@ library Groups {
 
     function setVerified(DataType.Groups storage groups, uint groupId, string memory groupName) external {
         validateGroup(groups, groupId, groupName);
-
         DataType.Group storage item = groups.items[groupId];
         _require(!item.state.verified, "Already verified");
         item.state.verified = true;
@@ -48,7 +44,6 @@ library Groups {
 
     function setFinalized(DataType.Groups storage groups, uint groupId, string memory groupName) external {
         validateGroup(groups, groupId, groupName);
-        
         DataType.Group storage item = groups.items[groupId];
         _require(item.state.verified, "Not yet verified");
         _require(!item.state.finalized, "Already finalized");
@@ -58,7 +53,6 @@ library Groups {
     }
 
     function validateGroup(DataType.Groups storage groups, uint groupId, string memory groupName) public view {
-        
         (bool found, uint id ) = exist(groups, groupName);
         _require (found && id==groupId, "Invalid group");
     }
@@ -71,7 +65,7 @@ library Groups {
         if (!item.state.verified) { return (false,  "Not yet verified"); }
         if (!item.state.finalized) { return (false, "Not yet finalized"); }
         if (item.merkleRoot.length == 0) { return (false, "No merkle root"); }
-        if (item.info.totalEntitlement == 0) { return (false, "Invalid amount"); }
+        if (item.info.totalEntitlement == 0) { return (false, "No entitlement"); }
         if (item.vestItems.length == 0) { return (false, "No vesting item"); }
         return (true, "ok");
     }

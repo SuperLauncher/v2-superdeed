@@ -19,14 +19,13 @@ contract DataStore {
     using MerkleClaims for *;
 
     DataType.Store private _dataStore;
-
     IRoleAccess private _roles;
+
     address public projectOwner;
 
     // Emergency Withdrawal Support
     uint internal _emergencyMaxAmount;
     uint internal _emergencyExpiryTime;
-
     
     modifier onlyProjectOwner() {
         _require(msg.sender == projectOwner, "Not project owner");
@@ -77,11 +76,6 @@ contract DataStore {
 
     function getAsset() external view returns (DataType.Asset memory) {
         return _dataStore.asset;
-    }
-
-    function entitlementOf(uint id) external view returns (uint) {
-        DataType.NftInfo memory nft = _store().nftInfoMap[id];
-        return nft.valid ? nft.totalEntitlement : 0;
     }
 
     function getGroupCount() external view returns (uint) {

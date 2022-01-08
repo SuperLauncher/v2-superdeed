@@ -7,12 +7,10 @@ import "../lib/Constant.sol";
 
 library Vesting {
 
-
     function defineVesting(DataType.Groups storage groups, uint groupId, DataType.VestingItem[] calldata vestItems) internal returns (uint) {
         
-        _require(groupId < groups.items.length, "Invalid group Id");
         uint len = vestItems.length;
-        _require (len > 0, "Invalid length");
+        _require(groupId < groups.items.length && len > 0, "Invalid parameter");
 
         DataType.Group storage item = groups.items[groupId];
 
@@ -24,6 +22,7 @@ library Vesting {
         for (uint n=0; n<len; n++) {
 
             DataType.VestingReleaseType relType = vestItems[n].releaseType;
+
             _require(relType < DataType.VestingReleaseType.Unsupported, "Invalid type");
             _require(!(relType == DataType.VestingReleaseType.Linear && vestItems[n].duration == 0), "Linear type cannot have 0 duration");
             _require(vestItems[n].percent > 0, "Invalid percent");
@@ -53,10 +52,10 @@ library Vesting {
        
         for (uint n=0; n<len; n++) {
 
-            (uint percent, bool continueLoop, uint traverseBy) = getRelease(items[n], start, end);
+            (uint percent, bool continueNext, uint traverseBy) = getRelease(items[n], start, end);
             claimablePercent += percent;
 
-            if (continueLoop) {
+            if (continueNext) {
                 start += traverseBy;
             } else {
                 break;
@@ -64,7 +63,7 @@ library Vesting {
         }
     }
 
-    function getRelease(DataType.VestingItem storage item, uint start, uint end) internal view returns (uint releasedPercent, bool continueLoop, uint traverseBy) {
+    function getRelease(DataType.VestingItem storage item, uint start, uint end) internal view returns (uint releasedPercent, bool continueNext, uint traverseBy) {
 
         releasedPercent = 0;
         bool passedDelay = (end > (start + item.delay));
@@ -72,12 +71,12 @@ library Vesting {
            
             if (item.releaseType == DataType.VestingReleaseType.LumpSum) {
                 releasedPercent = item.percent;
-                continueLoop = true;
+                continueNext = true;
                 traverseBy = item.delay;
             } else if (item.releaseType == DataType.VestingReleaseType.Linear) {
                 uint elapsed = end - start - item.delay;
                 releasedPercent = min(item.percent, (item.percent * elapsed) / item.duration);
-                continueLoop = (end > (start + item.delay + item.duration));
+                continueNext = (end > (start + item.delay + item.duration));
                 traverseBy = (item.delay+item.duration);
             } 
             else {

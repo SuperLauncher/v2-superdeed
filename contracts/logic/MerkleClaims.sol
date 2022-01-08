@@ -23,8 +23,7 @@ library MerkleClaims {
 
     function claim(DataType.Group storage group, uint index, address account, uint256 amount, bytes32[] calldata merkleProof) internal  {
         _require(!isClaimed(group, index), "Already claimed.");
-        _require(amount > 0, "Invalid amount");
-        _require(verifyClaim(group, index, account, amount, merkleProof), "Invalid proof");
+        _require( amount > 0 && verifyClaim(group, index, account, amount, merkleProof), "Invalid amount or proof");
         setClaimed(group, index);
     }
 

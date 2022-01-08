@@ -7,8 +7,6 @@ import "./interfaces/IDeedManager.sol";
 
 contract Factory {
     
-    uint private constant FACTORY_VERSION = 1;
-  
     IDeedManager private _manager;
 
     event CreateDeed(address newDeed, address projectOwner);
@@ -24,6 +22,7 @@ contract Factory {
 
         IRoleAccess roles = _manager.getRoles();
         require(roles.isDeployer(msg.sender), "Not deployer");
+        require(projectOwner != address(0), "Invalid address");
        
         // Deploy Deed certificate
         string memory deedName = string(abi.encodePacked(symbol, "-Deed")); // Append symbol from XYZ -> XYZ-Deed
@@ -35,7 +34,7 @@ contract Factory {
     }
 
     function version() external pure returns (uint) {
-        return FACTORY_VERSION;
+        return Constant.FACTORY_VERSION;
     }
 }
 

@@ -36,14 +36,14 @@ contract Manager is IDeedManager {
     mapping(address => bool) private _factoryMap;
     address[] private _factories;
     
-    // History/list of all IDOs
+    // History/list of all Deeds
     mapping(uint => DeedInfo) private _indexDeedMap; // Starts from 1. Zero is invalid //
     mapping(address => uint) private _addressIndexMap;  // Maps a Deed address to an index in _indexDeedMap.
     uint private _count;
     
     // Events
     event FactoryRegistered(address indexed deployedAddress);
-    event DeedAdded(address indexed contractAddress);
+    event DeedAdded(address indexed contractAddress, address indexed projectOwner);
     event DeedCancelled(address indexed contractAddress);
     
     constructor(IRoleAccess rolesRegistry) {
@@ -93,7 +93,7 @@ contract Manager is IDeedManager {
         _count++;
         _indexDeedMap[_count] = DeedInfo(deedContract, projectOwner, Status.Active);
         _addressIndexMap[deedContract] = _count;
-        emit DeedAdded(deedContract);
+        emit DeedAdded(deedContract, projectOwner);
     }
     
     function getRoles() external view override returns (IRoleAccess) {
