@@ -33,8 +33,8 @@ library DataType {
     }
 
     struct GroupState {
-        bool verified;
         bool finalized;
+        bool funded;
     }
 
     struct Group {
@@ -97,9 +97,8 @@ library DataType {
         DefineVesting,
         UploadUsersData,
         SetAssetAddress,
-        VerifyGroup,
-        FinalizeGroupFundIn,
-        FinalizeGroupWithoutFundIn,
+        FinalizeGroup,
+        FundInForGroup,
         StartVesting,
         ClaimDeed,
         ClaimTokens

@@ -53,8 +53,8 @@ contract DataStore {
     }
 
     event SetAssetDetails(address indexed user, address tokenAddress, DataType.AssetType tokenType, uint tokenIdFor1155);
-    event FinalizeGroupFundIn(address indexed user, uint groupId, string groupName, uint amount);
-    event FinalizeGroupWithoutFundIn(address indexed user, uint groupId, string groupName);
+    event FinalizeGroup(address indexed user, uint groupId, string groupName);
+    event FundInForGroup(address indexed user, uint groupId, string groupName, uint amount);
     event StartVesting(address indexed user, uint timeStamp);
     event ClaimDeed(address indexed user, uint timeStamp, uint groupId, uint claimIndex, uint amount, uint nftId);
     event ClaimTokens(address indexed user, uint timeStamp, uint id, uint amount);
@@ -86,6 +86,9 @@ contract DataStore {
         return _groups().getGroupName(groupId);
     }
 
+    function isGroupFunded(uint groupId) public view returns (bool) {
+        return _groups().items[groupId].state.funded;
+    }
     function isGroupReady(uint groupId) public view returns (bool) {
         (bool ready, ) = _groups().readyCheck(groupId);
         return ready;
@@ -181,9 +184,17 @@ contract DataStore {
     }
 
     function _recordHistory(DataType.ActionType actType, uint data1, uint data2) internal {
-       
        DataType.Action memory act = DataType.Action(uint128(actType), uint128(block.timestamp), data1, data2);
        _dataStore.history[msg.sender].push(act);
+    }
+
+    function _check(uint groupId, string memory groupName) internal view returns (bool matched) {
+        matched = _strcmp(_groups().items[groupId].info.name, groupName);
+        _require(matched, "Unmatched group");
+    }
+
+    function _strcmp(string memory a, string memory b) private pure returns (bool) {
+        return (keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b)));
     }
 
     function _require(bool condition, string memory error) pure internal {

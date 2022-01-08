@@ -51,13 +51,14 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     }
 
     function defineVesting(uint groupId, string memory groupName, DataType.VestingItem[] calldata vestItems) external  notLive onlyProjectOwnerOrConfigurator {    
-        _groups().validateGroup(groupId, groupName);
+        _check(groupId, groupName);
         uint added = _groups().defineVesting(groupId, vestItems);
         _recordHistory(DataType.ActionType.DefineVesting, added);
     }
 
     function uploadUsersData(uint groupId, string memory groupName, bytes32 merkleRoot, uint totalTokens) external  notLive onlyProjectOwnerOrConfigurator {   
-        _groups().uploadUsersData(groupId, groupName, merkleRoot, totalTokens);
+        _check(groupId, groupName);
+        _groups().uploadUsersData(groupId, merkleRoot, totalTokens);
         _recordHistory(DataType.ActionType.UploadUsersData, groupId, totalTokens);
     }
 
@@ -66,22 +67,26 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _recordHistory(DataType.ActionType.SetAssetAddress, uint160(tokenAddress), uint(tokenType));
     }
 
-    function setGroupVerified(uint groupId, string memory groupName) external notLive onlyProjectOwnerOrApprover {
-        _groups().setVerified(groupId, groupName);
-        _recordHistory(DataType.ActionType.VerifyGroup, groupId);
+    function setGroupFinalized(uint groupId, string memory groupName) external notLive onlyProjectOwnerOrApprover {
+        _check(groupId, groupName);
+        _groups().setFinalized(groupId, groupName);
+        emit FinalizeGroup(msg.sender, groupId, groupName);
+        _recordHistory(DataType.ActionType.FinalizeGroup, groupId);
     }
 
-    // Note that for ERC721 asset, the fund in is manual. Additionally, after transfer in, a call
-    // to notifyErc721Deposited() is required before calling finalizeGroupAndFundIn.
-    function finalizeGroupAndFundIn(uint groupId, string memory groupName, uint tokenAmount) external notLive onlyProjectOwnerOrApprover {
+    function fundInForGroup(uint groupId, string memory groupName, uint tokenAmount) external notLive onlyProjectOwnerOrApprover {
+        _check(groupId, groupName);
         _require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Invalid address");
         
         // Check required token Amount is correct?
-        _groups().validateGroup(groupId, groupName);
-        DataType.GroupInfo memory info = getGroupInfo(groupId);
-        _require(tokenAmount == info.totalEntitlement, "Wrong token amount");
-        _groups().setFinalized(groupId, groupName);
+        DataType.Group storage group = _groups().items[groupId];
+        _require(tokenAmount == group.info.totalEntitlement, "Wrong token amount");
 
+        // Group must be finalized and not yet fund in
+        _require(group.state.finalized, "Not yet finalized");
+        _require(!group.state.funded, "Already funded");
+        group.state.funded = true;
+        
         DataType.AssetType assetType = _asset().tokenType;
         if (assetType == DataType.AssetType.ERC20) {
             IERC20(_asset().tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount); 
@@ -95,19 +100,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
             _require(totalDeposited721 >= (handler.numUsedByVerifiedGroups + tokenAmount), "Insufficient deposited erc721");
             handler.numUsedByVerifiedGroups += tokenAmount;
         }   
-        
-        emit FinalizeGroupFundIn(msg.sender, groupId, groupName, tokenAmount);
-        _recordHistory(DataType.ActionType.FinalizeGroupFundIn, groupId, tokenAmount);
-    }
-
-    // Use-case:
-    // If there is an arrangement with project for manual fund-in. Example, a vesting contract that allow the fund in before each 
-    // vesting period, then the Group can be finalized without a fund-in.
-    // This should be an exception, rather than a norm. Only DaoMultiSig can approve such an arrangement.
-    function finalizeGroupWithoutFundIn(uint groupId, string memory groupName) external notLive onlyDaoMultiSig {
-        _groups().setFinalized(groupId, groupName);
-        emit FinalizeGroupWithoutFundIn(msg.sender, groupId, groupName);
-        _recordHistory(DataType.ActionType.FinalizeGroupWithoutFundIn, groupId);
+        emit FundInForGroup(msg.sender, groupId, groupName, tokenAmount);
+        _recordHistory(DataType.ActionType.FundInForGroup, groupId, tokenAmount);
     }
 
     function notifyErc721Deposited(uint[] calldata ids) external notLive onlyProjectOwnerOrApprover {
@@ -170,7 +164,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
             amount = amounts[n]; 
 
             DataType.Group storage item = groups.items[grpId];
-            _require(item.state.finalized && !item.isClaimed(claimIndex), "Not finalized or already claimed");
+            _require(item.state.finalized, "Not finalized");
+            _require(!item.isClaimed(claimIndex), "Already claimed");
 
             item.claim(claimIndex, msg.sender, amount, merkleProofs[n]);
             
@@ -197,7 +192,9 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
             uint percentReleasable = _groups().getClaimable(nft.groupId);
             if (percentReleasable > 0) {
                 uint totalReleasable = (percentReleasable * totalEntitlement) / Constant.PCNT_100;
-                claimable = totalReleasable - totalClaimed;
+                if (totalReleasable > totalClaimed) {
+                    claimable = totalReleasable - totalClaimed;
+                }
             }
         }
     }
@@ -208,6 +205,11 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     // If maxAmount is set to 0, it will claim all available tokens.
     function claimTokens(uint nftId, uint maxAmount) external nonReentrant {
         _require(ownerOf(nftId) == msg.sender, "Not owner");
+
+        // if this group is not yet funded, it should not be claimable
+        uint groupId = getNftInfo(nftId).groupId;
+        require(isGroupFunded(groupId), "Group not funded yet");
+
         (uint claimable, ,) =  getClaimable(nftId);
         _require(claimable > 0, "Nothing to claim");
         
@@ -223,43 +225,33 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         emit ClaimTokens(msg.sender, block.timestamp, nftId, claimable);
         _recordHistory(DataType.ActionType.ClaimTokens, nftId, claimable);
     }
-    
-    // Split by "remaining" entitlement in the NFT
-    function splitByPercent(uint id, uint percent) external nonReentrant returns (uint newId) {
-        _require(ownerOf(id) == msg.sender, "Not owner");
-        _require(percent > 0 && percent < Constant.PCNT_100, "Invalid percentage");
-        _require(_asset().tokenType == DataType.AssetType.ERC20, "Can split Erc20 only");
-        
-        DataType.NftInfo storage nft = _store().nftInfoMap[id];
-       
-        uint splitAmount = (nft.totalEntitlement * percent)/Constant.PCNT_100;
-        uint claimedAmount = (nft.totalClaimed * percent)/Constant.PCNT_100;
 
-        nft.totalEntitlement -= splitAmount;
-        nft.totalClaimed -= claimedAmount;
-        
-        // mint new nft
-        newId = _mintInternal(msg.sender, nft.groupId, splitAmount, claimedAmount);
-        emit SplitPercent(block.timestamp, id, newId, percent);
-    }
-
+    // Split an amount of entitlement out from the "remaining" entitlement from an exceeding Deed and becomes a new Deed.
+    // After the split, both Deeds should have non-zero remaining entitlement left.
     function split(uint id, uint amount) external nonReentrant returns (uint newId) {
         _require(ownerOf(id) == msg.sender, "Not owner");
-        _require(_asset().tokenType == DataType.AssetType.ERC20, "Can split Erc20 only");
-
+        
         DataType.NftInfo storage nft = _store().nftInfoMap[id];
 
         uint entitlementLeft = nft.totalEntitlement - nft.totalClaimed;
         _require(amount > 0 && entitlementLeft > amount, "Invalid amount");
 
-        uint splitAmount = (amount * nft.totalEntitlement) / entitlementLeft;
-        uint claimedAmount = (nft.totalClaimed * splitAmount) / entitlementLeft;
+        // Calculate the new NFT's required totalEntitlemnt totalClaimed, in a way that these values are distributed 
+        // as fairly as possible between the parent and child NFT. 
+        // Important note is that the sum of the totalEntitlement and totalClaimed before and after the split 
+        // should remain the same. Nothing more or less is resulted due to the split.
+        uint neededTotalEnt = (amount * nft.totalEntitlement) / entitlementLeft;
+        _require(neededTotalEnt > 0, "Invalid amount");
+        uint neededTotalClaimed = neededTotalEnt - amount;
 
-        nft.totalEntitlement -= splitAmount;
-        nft.totalClaimed -= claimedAmount;
+        nft.totalEntitlement -= neededTotalEnt;
+        nft.totalClaimed -= neededTotalClaimed;
+
+        // Sanity Check
+        _require(nft.totalEntitlement > 0 && nft.totalClaimed < nft.totalEntitlement, "Fail check");
         
         // mint new nft
-        newId = _mintInternal(msg.sender, nft.groupId, splitAmount, claimedAmount);
+        newId = _mintInternal(msg.sender, nft.groupId, neededTotalEnt, neededTotalClaimed);
         emit Split(block.timestamp, id, newId, amount);
     }
 
