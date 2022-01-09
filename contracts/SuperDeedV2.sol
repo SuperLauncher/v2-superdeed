@@ -104,8 +104,8 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _recordHistory(DataType.ActionType.FundInForGroup, groupId, tokenAmount);
     }
 
-    // For projects that is unable to fund in fully, but able to do progressive fund-in, the MS DAO can override the
-    // full FundIn requirement. This this case the project need to prove to SuperLauncher that they can prvide the 
+    // For projects that are unable to fund in fully, but able to do progressive fund-ins, the MS DAO can override the
+    // full FundIn requirement. In this case the project need to prove to SuperLauncher that they can provide the 
     // required assets on time without failure. For example, project can provide a funding contract for this purpose.
     function fundInForGroupOverride(uint groupId, string memory groupName) external notLive onlyDaoMultiSig {
 
