@@ -99,6 +99,7 @@ library DataType {
         SetAssetAddress,
         FinalizeGroup,
         FundInForGroup,
+        FundInForGroupOverrided,
         StartVesting,
         ClaimDeed,
         ClaimTokens

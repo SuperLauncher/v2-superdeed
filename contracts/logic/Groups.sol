@@ -40,7 +40,7 @@ library Groups {
         emit SetGroupFinalized(msg.sender, groupId, groupName);
     }
 
-    function readyCheck(DataType.Groups storage groups, uint groupId) public view returns (bool, string memory) {
+    function statusCheck(DataType.Groups storage groups, uint groupId) public view returns (bool, string memory) {
         uint len = groups.items.length;
         if (groupId >= len) { return (false, "Invalid group id"); }
 

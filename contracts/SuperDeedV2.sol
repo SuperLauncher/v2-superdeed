@@ -104,6 +104,25 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _recordHistory(DataType.ActionType.FundInForGroup, groupId, tokenAmount);
     }
 
+    // For projects that is unable to fund in fully, but able to do progressive fund-in, the MS DAO can override the
+    // full FundIn requirement. This this case the project need to prove to SuperLauncher that they can prvide the 
+    // required assets on time without failure. For example, project can provide a funding contract for this purpose.
+    function fundInForGroupOverride(uint groupId, string memory groupName) external notLive onlyDaoMultiSig {
+
+        _check(groupId, groupName);
+        _require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Invalid address");
+        
+        // Check required token Amount is correct?
+        DataType.Group storage group = _groups().items[groupId];
+        // Group must be finalized and not yet fund in
+        _require(group.state.finalized, "Not yet finalized");
+        _require(!group.state.funded, "Already funded");
+        group.state.funded = true;
+
+        emit FundInForGroupOverrided(msg.sender, groupId, groupName);
+        _recordHistory(DataType.ActionType.FundInForGroupOverrided, groupId, 0);
+    }
+
     function notifyErc721Deposited(uint[] calldata ids) external notLive onlyProjectOwnerOrApprover {
 
         _require(_asset().tokenType == DataType.AssetType.ERC721, "Not Erc721 asset");
@@ -176,8 +195,9 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         }
     }
 
-    function getReleasableTokensOfGroup(uint groupId) external view returns (uint percentReleasable, uint totalEntitlement) {
-        if (isGroupReady(groupId)) {
+    function getGroupReleasable(uint groupId) external view returns (uint percentReleasable, uint totalEntitlement) {
+        
+        if (getGroupState(groupId).finalized) {
             totalEntitlement =  getGroupInfo(groupId).totalEntitlement;
             percentReleasable = _groups().getClaimable(groupId);
         }
@@ -208,7 +228,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
         // if this group is not yet funded, it should not be claimable
         uint groupId = getNftInfo(nftId).groupId;
-        require(isGroupFunded(groupId), "Group not funded yet");
+        require(getGroupState(groupId).funded, "Group not funded yet");
 
         (uint claimable, ,) =  getClaimable(nftId);
         _require(claimable > 0, "Nothing to claim");

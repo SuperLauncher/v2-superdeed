@@ -55,6 +55,7 @@ contract DataStore {
     event SetAssetDetails(address indexed user, address tokenAddress, DataType.AssetType tokenType, uint tokenIdFor1155);
     event FinalizeGroup(address indexed user, uint groupId, string groupName);
     event FundInForGroup(address indexed user, uint groupId, string groupName, uint amount);
+    event FundInForGroupOverrided(address indexed user, uint groupId, string groupName);
     event StartVesting(address indexed user, uint timeStamp);
     event ClaimDeed(address indexed user, uint timeStamp, uint groupId, uint claimIndex, uint amount, uint nftId);
     event ClaimTokens(address indexed user, uint timeStamp, uint id, uint amount);
@@ -82,22 +83,18 @@ contract DataStore {
         return _groups().items.length;
     }
 
-    function getGroupName(uint groupId) external view returns (string memory) {
-        return _groups().getGroupName(groupId);
-    }
-
-    function isGroupFunded(uint groupId) public view returns (bool) {
-        return _groups().items[groupId].state.funded;
-    }
-    function isGroupReady(uint groupId) public view returns (bool) {
-        (bool ready, ) = _groups().readyCheck(groupId);
-        return ready;
-    }
-
     function getGroupInfo(uint groupId) public view returns (DataType.GroupInfo memory) {
         return _groups().items[groupId].info;
     }
 
+    function getGroupState(uint groupId) public view returns (DataType.GroupState memory) {
+        return _groups().items[groupId].state;
+    }
+
+    function checkGroupStatus(uint groupId) external view returns (bool, string memory) {
+        return _groups().statusCheck(groupId);
+    }
+    
     function getVestingInfo(uint groupId) external view returns (DataType.VestingItem[] memory) {
         return _groups().items[groupId].vestItems;
     }
