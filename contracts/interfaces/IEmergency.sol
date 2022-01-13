@@ -3,6 +3,6 @@
 pragma solidity 0.8.11;
 
 interface IEmergency {
-   function approveEmergencyAssetWithdraw(uint maxAmount) external;
+   function approveEmergencyAssetWithdraw(uint maxAmount, address destination) external;
    function daoMultiSigEmergencyWithdraw(address tokenAddress, address to, uint amount) external;
 }

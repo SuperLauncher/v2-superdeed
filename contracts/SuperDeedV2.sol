@@ -51,6 +51,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     }
 
     function defineVesting(uint groupId, string memory groupName, DataType.VestingItem[] calldata vestItems) external  notLive onlyProjectOwnerOrConfigurator {    
+        _require(!getGroupState(groupId).finalized, "Cannot change after group is finalized");
         _check(groupId, groupName);
         uint added = _groups().defineVesting(groupId, vestItems);
         _recordHistory(DataType.ActionType.DefineVesting, added);
@@ -63,6 +64,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     }
 
     function setAssetDetails(address tokenAddress, DataType.AssetType tokenType, uint tokenIdFor1155) external notLive onlyProjectOwnerOrConfigurator {
+        _require(!_isFunded, "The asset has been funded in");
         _setAssetDetails(tokenAddress, tokenType, tokenIdFor1155);
         _recordHistory(DataType.ActionType.SetAssetAddress, uint160(tokenAddress), uint(tokenType));
     }
@@ -86,6 +88,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _require(group.state.finalized, "Not yet finalized");
         _require(!group.state.funded, "Already funded");
         group.state.funded = true;
+        _isFunded = true;
         
         DataType.AssetType assetType = _asset().tokenType;
         if (assetType == DataType.AssetType.ERC20) {
@@ -118,6 +121,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         _require(group.state.finalized, "Not yet finalized");
         _require(!group.state.funded, "Already funded");
         group.state.funded = true;
+        _isFunded = true;
 
         emit FundInForGroupOverrided(msg.sender, groupId, groupName);
         _recordHistory(DataType.ActionType.FundInForGroupOverrided, groupId, 0);
@@ -150,6 +154,7 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
 
         // Make sure that the asset address are set before start vesting
         _require(_asset().tokenAddress != Constant.ZERO_ADDRESS, "Set token address first");
+        _require(_isFunded, "At least one group needs to be funded");
 
         if (startTime==0) {
             startTime = block.timestamp;
@@ -300,10 +305,11 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
     }
 
     // Implements IEmergency 
-    function approveEmergencyAssetWithdraw(uint maxAmount) external override onlyProjectOwner {
+    function approveEmergencyAssetWithdraw(uint maxAmount, address destination) external override onlyProjectOwner {
         _emergencyMaxAmount = maxAmount;
         _emergencyExpiryTime = block.timestamp + Constant.EMERGENCY_WINDOW;
-        emit ApprovedEmergencyWithdraw(msg.sender, _emergencyMaxAmount, _emergencyExpiryTime);
+        _emergencyDestination = destination;
+        emit ApprovedEmergencyWithdraw(msg.sender, _emergencyMaxAmount, _emergencyExpiryTime, _emergencyDestination);
     }
 
     function daoMultiSigEmergencyWithdraw(address tokenAddress, address to, uint amount) external override onlyDaoMultiSig {
@@ -312,10 +318,12 @@ contract SuperDeedV2 is ERC721Enumerable, IEmergency, ERC1155Holder, ERC721Holde
         // Every approval allow 1 time withdraw only.
         if (tokenAddress == _asset().tokenAddress) {
             _require((amount <= _emergencyMaxAmount) && (block.timestamp <= _emergencyExpiryTime), "Criteria not met");
-           
+            _require(to == _emergencyDestination, "Wrong withdrawal destination");
+
             // Reset 
             _emergencyMaxAmount = 0;
             _emergencyExpiryTime = 0;
+            _emergencyDestination = Constant.ZERO_ADDRESS;
 
             _transferAssetOut(to, amount);
         } else {

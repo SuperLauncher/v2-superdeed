@@ -26,6 +26,8 @@ contract DataStore {
     // Emergency Withdrawal Support
     uint internal _emergencyMaxAmount;
     uint internal _emergencyExpiryTime;
+    address internal _emergencyDestination;
+    bool internal _isFunded;
     
     modifier onlyProjectOwner() {
         _require(msg.sender == projectOwner, "Not project owner");
@@ -62,7 +64,7 @@ contract DataStore {
     event Split(uint timeStamp, uint id1, uint id2, uint amount);
     event SplitPercent(uint timeStamp, uint id1, uint id2, uint percent);
     event Combine(uint timeStamp, uint id1, uint id2);
-    event ApprovedEmergencyWithdraw(address indexed approver, uint amount, uint expiry);
+    event ApprovedEmergencyWithdraw(address indexed approver, uint amount, uint expiry, address destination);
     event DaoMultiSigEmergencyWithdraw(address to, address tokenAddress, uint amount);
     
     constructor (IRoleAccess roles, address campaignOwner) {
