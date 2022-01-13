@@ -94,7 +94,7 @@ contract DataStore {
     function checkGroupStatus(uint groupId) external view returns (bool, string memory) {
         return _groups().statusCheck(groupId);
     }
-    
+
     function getVestingInfo(uint groupId) external view returns (DataType.VestingItem[] memory) {
         return _groups().items[groupId].vestItems;
     }
@@ -110,6 +110,11 @@ contract DataStore {
     function isLive() public view returns (bool) {
         uint time = _groups().vestingStartTime;
         return (time != 0 && block.timestamp > time);
+    }
+
+    function isDeedClaimed(uint groupId, uint index) external view returns (bool) {
+        DataType.Group storage group = _groups().items[groupId];
+        return group.isClaimed(index);
     }
 
     function verifyDeedClaim(uint groupId, uint index, address account, uint amount, bytes32[] calldata merkleProof) external view returns (bool) {
